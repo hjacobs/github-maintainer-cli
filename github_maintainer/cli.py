@@ -88,36 +88,56 @@ def get_repositories():
 
 
 @click.group(cls=AliasedGroup)
-def cli():
-    pass
-
-
-@cli.command()
-def repositories():
-    '''List repositories'''
+@click.pass_context
+def cli(ctx):
     config = stups_cli.config.load_config('github-maintainer-cli')
+
     emails = config.get('emails')
     token = config.get('github_access_token')
 
-    if not emails:
-        raise click.UsageError('No emails configured')
+    if not 'configure'.startswith(ctx.invoked_subcommand or 'x'):
+        if not emails:
+            raise click.UsageError('No emails configured. Please run "configure".')
 
-    if not token:
-        raise click.UsageError('No GitHub access token configured')
+        if not token:
+            raise click.UsageError('No GitHub access token configured. Please run "configure".')
+
+    ctx.obj = config
+
+
+@cli.command()
+@click.pass_obj
+def configure(config):
+    '''Configure GitHub access'''
+    emails = click.prompt('Your email addresses', default=','.join(config.get('emails')))
+    token = click.prompt('Your personal GitHub access token', hide_input=True,
+                         default=config.get('github_access_token'))
+
+    emails = emails.split(',')
+    config = {'emails': emails, 'github_access_token': token}
+
+    repositories = {}
+    with Action('Scanning repositories..') as act:
+        for repo in get_my_repos(emails, token):
+            repositories[repo['url']] = repo
+            act.progress()
 
     path = os.path.join(CONFIG_DIR, 'repositories.yaml')
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    with open(path, 'w') as fd:
+        yaml.safe_dump(repositories, fd)
+
+    with Action('Storing configuration..'):
+        stups_cli.config.store_config(config, 'github-maintainer-cli')
+
+
+@cli.command()
+@click.pass_obj
+def repositories(config):
+    '''List repositories'''
+    token = config.get('github_access_token')
 
     repositories = get_repositories()
-
-    if not repositories:
-        with Action('Scanning repositories..') as act:
-            for repo in get_my_repos(emails, token):
-                repositories[repo['url']] = repo
-                act.progress()
-
-        os.makedirs(CONFIG_DIR, exist_ok=True)
-        with open(path, 'w') as fd:
-            yaml.safe_dump(repositories, fd)
 
     for issue in get_my_issues(token):
         repo = repositories.get(issue['repository']['url'])
@@ -134,9 +154,9 @@ def repositories():
 
 
 @cli.command()
-def issues():
+@click.pass_obj
+def issues(config):
     '''List open issues'''
-    config = stups_cli.config.load_config('github-maintainer-cli')
     token = config.get('github_access_token')
 
     repositories = get_repositories()
@@ -157,9 +177,9 @@ def issues():
 
 
 @cli.command('pull-requests')
-def pull_requests():
+@click.pass_obj
+def pull_requests(config):
     '''List pull requests'''
-    config = stups_cli.config.load_config('github-maintainer-cli')
     token = config.get('github_access_token')
 
     repositories = get_repositories()
