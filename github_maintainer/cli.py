@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import click
 import codecs
 import datetime
@@ -185,5 +183,6 @@ def pull_requests():
     print_table(['repository', 'number', 'title', 'labels', 'mergeable',
                  'mergeable_state', 'created_time', 'created_by'], rows)
 
-if __name__ == '__main__':
+
+def main():
     cli()
