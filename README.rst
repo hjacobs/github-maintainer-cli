@@ -38,9 +38,10 @@ Usage
 .. code-block:: bash
 
     $ sudo pip3 install -U github-maintainer
-    $ github-maintainer repositories
-    $ github-maintainer issues
-    $ github-maintainer pull-requests
+    $ github-maintainer configure      # initial setup
+    $ github-maintainer repositories   # list my repos
+    $ github-maintainer issues         # list my issues
+    $ github-maintainer pull-requests  # list my PRs
 
 Running Unit Tests
 ==================

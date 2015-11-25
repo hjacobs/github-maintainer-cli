@@ -105,11 +105,26 @@ def cli(ctx):
     ctx.obj = config
 
 
+def get_git_email():
+    with open(os.path.expanduser('~/.gitconfig')) as fd:
+        for line in fd:
+            key, sep, val = line.strip().partition('=')
+            if key.strip() == 'email':
+                return val.strip()
+
+
 @cli.command()
 @click.pass_obj
 def configure(config):
     '''Configure GitHub access'''
-    emails = click.prompt('Your email addresses', default=','.join(config.get('emails')))
+    emails = config.get('emails', [])
+    if not emails:
+        try:
+            emails = [get_git_email()]
+        except:
+            pass
+
+    emails = click.prompt('Your email addresses', default=','.join(emails) or None)
     token = click.prompt('Your personal GitHub access token', hide_input=True,
                          default=config.get('github_access_token'))
 
