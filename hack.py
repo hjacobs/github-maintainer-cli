@@ -17,6 +17,20 @@ session.mount('http://', adapter)
 session.mount('https://', adapter)
 
 
+def get_my_issues(token):
+    headers = {'Authorization': 'Bearer {}'.format(token)}
+    page = 1
+    while True:
+        response = session.get('https://api.github.com/issues', params={'per_page': 100, 'page': page, 'filter': 'all'},
+                               headers=headers)
+        response.raise_for_status()
+        for issue in response.json():
+            yield issue
+        page += 1
+        if 'next' not in response.headers.get('Link', ''):
+            break
+
+
 def get_my_repos(my_emails, token):
     headers = {'Authorization': 'Bearer {}'.format(token)}
     page = 1
@@ -78,11 +92,18 @@ def cli():
         with open(path, 'w') as fd:
             yaml.safe_dump(repositories, fd)
 
+    for issue in get_my_issues(token):
+        repo = repositories.get(issue['repository']['url'])
+        if repo:
+            repo['open_issues'] = repo.get('open_issues', 0) + 1
+            if issue.get('pull_request'):
+                repo['open_pull_requests'] = repo.get('open_pull_requests', 0) + 1
+
     rows = []
     for url, repo in sorted(repositories.items()):
         rows.append(repo)
 
-    print_table(['full_name', 'stargazers_count', 'subscribers_count', 'forks_count'], rows)
+    print_table(['full_name', 'stargazers_count', 'forks_count', 'open_issues', 'open_pull_requests'], rows)
 
 
 if __name__ == '__main__':
