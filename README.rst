@@ -18,4 +18,5 @@ therefore we use the convention of putting a ``MAINTAINERS`` file in the root of
 
 Each person listed in the ``MAINTAINERS`` file is responsible for managing issues, pull requests and keeping code quality.
 
+This tool should support you as a maintainer in doing so easily from the command line.
 
