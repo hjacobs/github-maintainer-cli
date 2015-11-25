@@ -2,6 +2,18 @@
 GitHub Maintainer CLI
 =====================
 
+.. image:: https://img.shields.io/pypi/dw/github-maintainer.svg
+   :target: https://pypi.python.org/pypi/github-maintainer/
+   :alt: PyPI Downloads
+
+.. image:: https://img.shields.io/pypi/v/github-maintainer.svg
+   :target: https://pypi.python.org/pypi/github-maintainer/
+   :alt: Latest PyPI version
+
+.. image:: https://img.shields.io/pypi/l/github-maintainer.svg
+   :target: https://pypi.python.org/pypi/github-maintainer/
+   :alt: License
+
 Command line tool to help you in the role of an Open Source project maintainer on GitHub.
 
 * Reads ``MAINTAINERS`` file to find repositories you are responsible for
@@ -20,3 +32,26 @@ Each person listed in the ``MAINTAINERS`` file is responsible for managing issue
 
 This tool should support you as a maintainer in doing so easily from the command line.
 
+Usage
+=====
+
+.. code-block:: bash
+
+    $ sudo pip3 install -U github-maintainer
+    $ github-maintainer repositories
+    $ github-maintainer issues
+    $ github-maintainer pull-requests
+
+Running Unit Tests
+==================
+
+.. code-block:: bash
+
+    $ python3 setup.py test --cov-html=true
+
+Releasing
+=========
+
+.. code-block:: bash
+
+    $ ./release.sh <NEW-VERSION>
