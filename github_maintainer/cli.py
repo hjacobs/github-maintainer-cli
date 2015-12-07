@@ -46,7 +46,7 @@ def get_my_issues(token):
             break
 
 
-def get_my_repos(my_emails, token):
+def get_repos(token):
     headers = {'Authorization': 'Bearer {}'.format(token)}
     page = 1
     while True:
@@ -60,23 +60,21 @@ def get_my_repos(my_emails, token):
                 b64 = r.json()['content']
                 maintainers = codecs.decode(b64.encode('utf-8'), 'base64').decode('utf-8')
                 maintainers = list(filter(None, maintainers.split('\n')))
-                for maintainer in maintainers:
-                    name, _, email = maintainer.strip().partition('<')
-                    email = email.strip().rstrip('>')
-                    if email in my_emails:
-                        repo = {}
-                        for key in ['url', 'name', 'full_name', 'description', 'private', 'language',
-                                    'stargazers_count', 'subscribers_count', 'forks_count', 'fork']:
-                            repo[key] = gh_repo.get(key)
-                        repo['maintainers'] = maintainers
-                        yield repo
+            else:
+                maintainers = []
+            repo = {}
+            for key in ['url', 'name', 'full_name', 'description', 'private', 'language',
+                        'stargazers_count', 'subscribers_count', 'forks_count', 'fork']:
+                repo[key] = gh_repo.get(key)
+            repo['maintainers'] = maintainers
+            yield repo
 
         page += 1
         if 'next' not in response.headers.get('Link'):
             break
 
 
-def get_repositories():
+def get_all_repositories():
     path = os.path.join(CONFIG_DIR, 'repositories.yaml')
 
     try:
@@ -85,6 +83,21 @@ def get_repositories():
     except:
         repositories = {}
     return repositories
+
+
+def get_repositories():
+    config = stups_cli.config.load_config('github-maintainer-cli')
+
+    my_emails = config.get('emails')
+    my_repos = {}
+
+    for url, repo in get_all_repositories().items():
+        for maintainer in repo['maintainers']:
+            name, _, email = maintainer.strip().partition('<')
+            email = email.strip().rstrip('>')
+            if email in my_emails:
+                my_repos[url] = repo
+    return my_repos
 
 
 @click.group(cls=AliasedGroup)
@@ -133,7 +146,7 @@ def configure(config):
 
     repositories = {}
     with Action('Scanning repositories..') as act:
-        for repo in get_my_repos(emails, token):
+        for repo in get_repos(token):
             repositories[repo['url']] = repo
             act.progress()
 
