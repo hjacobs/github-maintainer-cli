@@ -32,13 +32,28 @@ def parse_time(s: str) -> float:
         return None
 
 
+def request(func, url, token, **kwargs):
+    kwargs['headers'] = {'Authorization': 'Bearer {}'.format(token)}
+    response = func(url, **kwargs)
+    if response.status_code != 200:
+        try:
+            data = response.json()
+            message = data['message']
+        except:
+            message = None
+        if data:
+            raise requests.HTTPError('GitHub returned status {} {}: {}'.format(
+                                     response.status_code, response.reason, message))
+        else:
+            response.raise_for_status()
+    return response
+
+
 def get_my_issues(token):
-    headers = {'Authorization': 'Bearer {}'.format(token)}
     page = 1
     while True:
-        response = session.get('https://api.github.com/issues', params={'per_page': 100, 'page': page, 'filter': 'all'},
-                               headers=headers)
-        response.raise_for_status()
+        response = request(session.get, 'https://api.github.com/issues', token,
+                           params={'per_page': 100, 'page': page, 'filter': 'all'})
         for issue in response.json():
             yield issue
         page += 1
@@ -47,15 +62,13 @@ def get_my_issues(token):
 
 
 def get_repos(token):
-    headers = {'Authorization': 'Bearer {}'.format(token)}
     page = 1
     while True:
-        response = session.get('https://api.github.com/user/repos', params={'per_page': 100, 'page': page},
-                               headers=headers)
-        response.raise_for_status()
+        response = request(session.get, 'https://api.github.com/user/repos', token,
+                           params={'per_page': 100, 'page': page})
         for gh_repo in response.json():
             contents_url = gh_repo['contents_url']
-            r = session.get(contents_url.replace('{+path}', 'MAINTAINERS'), headers=headers)
+            r = request(session.get, contents_url.replace('{+path}', 'MAINTAINERS'), token)
             if r.status_code == 200:
                 b64 = r.json()['content']
                 maintainers = codecs.decode(b64.encode('utf-8'), 'base64').decode('utf-8')
@@ -218,7 +231,7 @@ def pull_requests(config):
         if pr:
             repo = repositories.get(issue['repository']['url'])
             if repo:
-                r = session.get(pr['url'], headers={'Authorization': 'Bearer {}'.format(token)})
+                r = request(session.get, pr['url'], token)
                 pr = r.json()
                 issue.update(**pr)
                 issue['repository'] = repo['full_name']
