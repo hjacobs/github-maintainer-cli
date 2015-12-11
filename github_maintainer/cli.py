@@ -32,10 +32,10 @@ def parse_time(s: str) -> float:
         return None
 
 
-def request(func, url, token, **kwargs):
+def request(func, url, token, raise_for_status=True, **kwargs):
     kwargs['headers'] = {'Authorization': 'Bearer {}'.format(token)}
     response = func(url, **kwargs)
-    if response.status_code != 200:
+    if raise_for_status and response.status_code != 200:
         try:
             data = response.json()
             message = data['message']
@@ -68,7 +68,7 @@ def get_repos(token):
                            params={'per_page': 100, 'page': page})
         for gh_repo in response.json():
             contents_url = gh_repo['contents_url']
-            r = request(session.get, contents_url.replace('{+path}', 'MAINTAINERS'), token)
+            r = request(session.get, contents_url.replace('{+path}', 'MAINTAINERS'), token, raise_for_status=False)
             if r.status_code == 200:
                 b64 = r.json()['content']
                 maintainers = codecs.decode(b64.encode('utf-8'), 'base64').decode('utf-8')
