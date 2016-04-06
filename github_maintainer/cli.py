@@ -150,11 +150,11 @@ def configure(config):
         except:
             pass
 
-    emails = click.prompt('Your email addresses', default=','.join(emails) or None)
+    emails = click.prompt('Your email addresses (comma separated)', default=','.join(emails) or None)
     token = click.prompt('Your personal GitHub access token', hide_input=True,
                          default=config.get('github_access_token'))
 
-    emails = emails.split(',')
+    emails = list([mail.strip() for mail in emails.split(',')])
     config = {'emails': emails, 'github_access_token': token}
 
     repositories = {}
