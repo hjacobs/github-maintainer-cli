@@ -1,7 +1,9 @@
 import click
 import codecs
 import datetime
+import json
 import os
+import re
 import requests
 import stups_cli.config
 import time
@@ -10,6 +12,7 @@ import yaml
 from clickclick import print_table, Action, AliasedGroup
 
 CONFIG_DIR = click.get_app_dir('github-maintainer-cli')
+CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 
 adapter = requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=10)
 session = requests.Session()
@@ -35,7 +38,7 @@ def parse_time(s: str) -> float:
 def request(func, url, token, raise_for_status=True, **kwargs):
     kwargs['headers'] = {'Authorization': 'Bearer {}'.format(token)}
     response = func(url, **kwargs)
-    if raise_for_status and response.status_code != 200:
+    if raise_for_status and response.status_code not in (200, 201):
         try:
             data = response.json()
             message = data['message']
@@ -113,7 +116,7 @@ def get_repositories():
     return my_repos
 
 
-@click.group(cls=AliasedGroup)
+@click.group(cls=AliasedGroup, context_settings=CONTEXT_SETTINGS)
 @click.pass_context
 def cli(ctx):
     config = stups_cli.config.load_config('github-maintainer-cli')
@@ -243,6 +246,88 @@ def pull_requests(config):
     rows.sort(key=lambda x: (x['repository'], x['number']))
     print_table(['repository', 'number', 'title', 'labels', 'mergeable',
                  'mergeable_state', 'created_time', 'created_by'], rows)
+
+
+@cli.command()
+@click.argument('repo')
+@click.argument('path')
+@click.argument('pattern')
+@click.argument('replacement')
+@click.option('--base-branch', default='master', help='Base branch (default is "master")')
+@click.option('--all-repositories', is_flag=True, help='Match all repositories, not only the ones I maintain')
+@click.option('--title', help='Title of pull request')
+@click.pass_obj
+def patch(config, repo, path, pattern, replacement, base_branch, all_repositories, title):
+    '''Replace a pattern in a single file in multiple repositories
+
+    Example:
+
+    github-maintainer patch 'zalando-stups/.*' Dockerfile 'stups/openjdk:8.*' stups/openjdk:8-24
+    '''
+    token = config.get('github_access_token')
+
+    if all_repositories:
+        repositories = get_all_repositories()
+    else:
+        repositories = get_repositories()
+
+    repo_pattern = re.compile(repo)
+
+    for key, val in repositories.items():
+        if repo_pattern.search(key):
+            # see https://gist.github.com/harlantwood/2935203
+            with Action('Getting {}/{}..'.format(val['full_name'], path)) as act:
+                response = request(session.get, val['url'] + '/contents/{}'.format(path), token, raise_for_status=False)
+                if response.status_code == 200:
+                    b64 = response.json()['content']
+                    original_content = codecs.decode(b64.encode('utf-8'), 'base64').decode('utf-8')
+                    content = re.sub(pattern, replacement, original_content)
+                else:
+                    original_content = content = None
+                    act.ok('NOT FOUND')
+
+            if content != original_content:
+                safe_path = re.sub('[^a-z0-9-]', '', path.lower())
+                branch_name = 'patch-{}-{}'.format(safe_path, time.strftime('%m-%d-%H-%M-%S'))
+                title = title or 'Patch s/{}/{}/g'.format(pattern, replacement)
+                with Action('Creating new branch {} and commit..'.format(branch_name)):
+                    response = request(session.get, val['url'] + '/git/refs/heads/' + base_branch, token)
+                    last_commit_sha = response.json()['object']['sha']
+
+                    response = request(session.get, val['url'] + '/git/commits/' + last_commit_sha, token)
+                    last_tree_sha = response.json()['tree']['sha']
+
+                    response = request(session.post, val['url'] + '/git/refs', token,
+                                       data=json.dumps({'ref': 'refs/heads/' + branch_name,
+                                                        'sha': last_commit_sha}))
+                    branch_sha = response.json()['object']['sha']
+
+                    response = request(session.post, val['url'] + '/git/trees', token,
+                                       data=json.dumps({'base_tree': last_tree_sha,
+                                                        'tree': [{'type': 'blob',
+                                                                  'path': path,
+                                                                  'content': content,
+                                                                  'mode': '100644'}]}))
+                    data = response.json()
+                    new_content_tree_sha = data['sha']
+
+                    response = request(session.post, val['url'] + '/git/commits', token,
+                                       data=json.dumps({'parents': [branch_sha],
+                                                        'tree': new_content_tree_sha,
+                                                        'message': title}))
+                    new_commit_sha = response.json()['sha']
+
+                    response = request(session.patch, val['url'] + '/git/refs/heads/' + branch_name, token,
+                                       data=json.dumps({'sha': new_commit_sha}))
+
+                with Action('Creating pull request..') as act:
+                    body = 'Automatically created by github-maintainer-cli to patch {}'.format(path)
+                    response = request(session.post, val['url'] + '/pulls', token,
+                                       data=json.dumps({'title': title,
+                                                        'head': branch_name,
+                                                        'base': base_branch,
+                                                        'body': body}))
+                    act.ok(response.json()['_links']['html']['href'])
 
 
 def main():
