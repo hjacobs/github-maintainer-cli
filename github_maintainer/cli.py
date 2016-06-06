@@ -12,6 +12,7 @@ import yaml
 from clickclick import print_table, Action, AliasedGroup
 
 CONFIG_DIR = click.get_app_dir('github-maintainer-cli')
+CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 
 adapter = requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=10)
 session = requests.Session()
@@ -115,7 +116,7 @@ def get_repositories():
     return my_repos
 
 
-@click.group(cls=AliasedGroup)
+@click.group(cls=AliasedGroup, context_settings=CONTEXT_SETTINGS)
 @click.pass_context
 def cli(ctx):
     config = stups_cli.config.load_config('github-maintainer-cli')
@@ -252,12 +253,23 @@ def pull_requests(config):
 @click.argument('path')
 @click.argument('pattern')
 @click.argument('replacement')
-@click.option('--base-branch', default='master')
+@click.option('--base-branch', default='master', help='Base branch (default is "master")')
+@click.option('--all-repositories', is_flag=True, help='Match all repositories, not only the ones I maintain')
+@click.option('--title', help='Title of pull request')
 @click.pass_obj
-def patch(config, repo, path, pattern, replacement, base_branch):
+def patch(config, repo, path, pattern, replacement, base_branch, all_repositories, title):
+    '''Replace a pattern in a single file in multiple repositories
+
+    Example:
+
+    github-maintainer patch 'zalando-stups/.*' Dockerfile 'stups/openjdk:8.*' stups/openjdk:8-24
+    '''
     token = config.get('github_access_token')
 
-    repositories = get_repositories()
+    if all_repositories:
+        repositories = get_all_repositories()
+    else:
+        repositories = get_repositories()
 
     repo_pattern = re.compile(repo)
 
@@ -277,7 +289,7 @@ def patch(config, repo, path, pattern, replacement, base_branch):
             if content != original_content:
                 safe_path = re.sub('[^a-z0-9-]', '', path.lower())
                 branch_name = 'patch-{}-{}'.format(safe_path, time.strftime('%m-%d-%H-%M-%S'))
-                title = 'Patch s/{}/{}/g'.format(pattern, replacement)
+                title = title or 'Patch s/{}/{}/g'.format(pattern, replacement)
                 with Action('Creating new branch {} and commit..'.format(branch_name)):
                     response = request(session.get, val['url'] + '/git/refs/heads/' + base_branch, token)
                     last_commit_sha = response.json()['object']['sha']
