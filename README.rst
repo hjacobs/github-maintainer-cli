@@ -42,6 +42,7 @@ Usage
     $ github-maintainer repositories   # list my repos
     $ github-maintainer issues         # list my issues
     $ github-maintainer pull-requests  # list my PRs
+    $ github-maintainer patch 'myorg/.*' Dockerfile 'openjdk:8.*' openjdk:8-123  # replace patterns
 
 Running Unit Tests
 ==================
