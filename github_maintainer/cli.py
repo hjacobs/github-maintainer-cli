@@ -252,54 +252,70 @@ def pull_requests(config):
 @click.argument('path')
 @click.argument('pattern')
 @click.argument('replacement')
+@click.option('--base-branch', default='master')
 @click.pass_obj
-def patch(config, repo, path, pattern, replacement):
+def patch(config, repo, path, pattern, replacement, base_branch):
     token = config.get('github_access_token')
 
     repositories = get_repositories()
 
+    repo_pattern = re.compile(repo)
+
     for key, val in repositories.items():
-        if repo in key:
+        if repo_pattern.search(key):
             # see https://gist.github.com/harlantwood/2935203
-            with Action('Getting {}..'.format(path)):
-                response = request(session.get, val['url'] + '/contents/{}'.format(path), token)
-                b64 = response.json()['content']
-                content = codecs.decode(b64.encode('utf-8'), 'base64').decode('utf-8')
-                content = re.sub(pattern, replacement, content)
+            with Action('Getting {}/{}..'.format(val['full_name'], path)) as act:
+                response = request(session.get, val['url'] + '/contents/{}'.format(path), token, raise_for_status=False)
+                if response.status_code == 200:
+                    b64 = response.json()['content']
+                    original_content = codecs.decode(b64.encode('utf-8'), 'base64').decode('utf-8')
+                    content = re.sub(pattern, replacement, original_content)
+                else:
+                    original_content = content = None
+                    act.ok('NOT FOUND')
 
-            branch_name = 'patch-{}'.format(int(time.time()))
-            with Action('Creating new branch {} and commit..'.format(branch_name)):
-                response = request(session.get, val['url'] + '/git/refs/heads/master', token)
-                last_commit_sha = response.json()['object']['sha']
+            if content != original_content:
+                safe_path = re.sub('[^a-z0-9-]', '', path.lower())
+                branch_name = 'patch-{}-{}'.format(safe_path, time.strftime('%m-%d-%H-%M-%S'))
+                title = 'Patch s/{}/{}/g'.format(pattern, replacement)
+                with Action('Creating new branch {} and commit..'.format(branch_name)):
+                    response = request(session.get, val['url'] + '/git/refs/heads/' + base_branch, token)
+                    last_commit_sha = response.json()['object']['sha']
 
-                response = request(session.get, val['url'] + '/git/commits/' + last_commit_sha, token)
-                last_tree_sha = response.json()['tree']['sha']
+                    response = request(session.get, val['url'] + '/git/commits/' + last_commit_sha, token)
+                    last_tree_sha = response.json()['tree']['sha']
 
-                response = request(session.post, val['url'] + '/git/refs', token,
-                        data=json.dumps({'ref': 'refs/heads/' + branch_name,
-                            'sha': last_commit_sha
-                            }))
-                branch_sha = response.json()['object']['sha']
+                    response = request(session.post, val['url'] + '/git/refs', token,
+                                       data=json.dumps({'ref': 'refs/heads/' + branch_name,
+                                                        'sha': last_commit_sha}))
+                    branch_sha = response.json()['object']['sha']
 
-                response = request(session.post, val['url'] + '/git/trees', token,
-                        data=json.dumps({
-                            'base_tree': last_tree_sha,
-                            'tree': [{'type': 'blob', 'path': path, 'content': content, 'mode': '100644'}]}))
-                data = response.json()
-                print(data)
-                new_content_tree_sha = data['sha']
+                    response = request(session.post, val['url'] + '/git/trees', token,
+                                       data=json.dumps({'base_tree': last_tree_sha,
+                                                        'tree': [{'type': 'blob',
+                                                                  'path': path,
+                                                                  'content': content,
+                                                                  'mode': '100644'}]}))
+                    data = response.json()
+                    new_content_tree_sha = data['sha']
 
-                response = request(session.post, val['url'] + '/git/commits', token,
-                        data=json.dumps({'parents': [branch_sha],
-                            'tree': new_content_tree_sha,
-                            'message': 'Patch s/{}/{}/g'.format(pattern, replacement)
-                            }))
-                new_commit_sha = response.json()['sha']
+                    response = request(session.post, val['url'] + '/git/commits', token,
+                                       data=json.dumps({'parents': [branch_sha],
+                                                        'tree': new_content_tree_sha,
+                                                        'message': title}))
+                    new_commit_sha = response.json()['sha']
 
-                response = request(session.patch, val['url'] + '/git/refs/heads/' + branch_name, token,
-                        data=json.dumps({'sha': new_commit_sha}))
-                print(response.json())
+                    response = request(session.patch, val['url'] + '/git/refs/heads/' + branch_name, token,
+                                       data=json.dumps({'sha': new_commit_sha}))
 
+                with Action('Creating pull request..') as act:
+                    body = 'Automatically created by github-maintainer-cli to patch {}'.format(path)
+                    response = request(session.post, val['url'] + '/pulls', token,
+                                       data=json.dumps({'title': title,
+                                                        'head': branch_name,
+                                                        'base': base_branch,
+                                                        'body': body}))
+                    act.ok(response.json()['_links']['html']['href'])
 
 
 def main():
