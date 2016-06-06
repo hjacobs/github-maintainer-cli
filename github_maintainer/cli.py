@@ -1,7 +1,9 @@
 import click
 import codecs
 import datetime
+import json
 import os
+import re
 import requests
 import stups_cli.config
 import time
@@ -35,7 +37,7 @@ def parse_time(s: str) -> float:
 def request(func, url, token, raise_for_status=True, **kwargs):
     kwargs['headers'] = {'Authorization': 'Bearer {}'.format(token)}
     response = func(url, **kwargs)
-    if raise_for_status and response.status_code != 200:
+    if raise_for_status and response.status_code not in (200, 201):
         try:
             data = response.json()
             message = data['message']
@@ -243,6 +245,61 @@ def pull_requests(config):
     rows.sort(key=lambda x: (x['repository'], x['number']))
     print_table(['repository', 'number', 'title', 'labels', 'mergeable',
                  'mergeable_state', 'created_time', 'created_by'], rows)
+
+
+@cli.command()
+@click.argument('repo')
+@click.argument('path')
+@click.argument('pattern')
+@click.argument('replacement')
+@click.pass_obj
+def patch(config, repo, path, pattern, replacement):
+    token = config.get('github_access_token')
+
+    repositories = get_repositories()
+
+    for key, val in repositories.items():
+        if repo in key:
+            # see https://gist.github.com/harlantwood/2935203
+            with Action('Getting {}..'.format(path)):
+                response = request(session.get, val['url'] + '/contents/{}'.format(path), token)
+                b64 = response.json()['content']
+                content = codecs.decode(b64.encode('utf-8'), 'base64').decode('utf-8')
+                content = re.sub(pattern, replacement, content)
+
+            branch_name = 'patch-{}'.format(int(time.time()))
+            with Action('Creating new branch {} and commit..'.format(branch_name)):
+                response = request(session.get, val['url'] + '/git/refs/heads/master', token)
+                last_commit_sha = response.json()['object']['sha']
+
+                response = request(session.get, val['url'] + '/git/commits/' + last_commit_sha, token)
+                last_tree_sha = response.json()['tree']['sha']
+
+                response = request(session.post, val['url'] + '/git/refs', token,
+                        data=json.dumps({'ref': 'refs/heads/' + branch_name,
+                            'sha': last_commit_sha
+                            }))
+                branch_sha = response.json()['object']['sha']
+
+                response = request(session.post, val['url'] + '/git/trees', token,
+                        data=json.dumps({
+                            'base_tree': last_tree_sha,
+                            'tree': [{'type': 'blob', 'path': path, 'content': content, 'mode': '100644'}]}))
+                data = response.json()
+                print(data)
+                new_content_tree_sha = data['sha']
+
+                response = request(session.post, val['url'] + '/git/commits', token,
+                        data=json.dumps({'parents': [branch_sha],
+                            'tree': new_content_tree_sha,
+                            'message': 'Patch s/{}/{}/g'.format(pattern, replacement)
+                            }))
+                new_commit_sha = response.json()['sha']
+
+                response = request(session.patch, val['url'] + '/git/refs/heads/' + branch_name, token,
+                        data=json.dumps({'sha': new_commit_sha}))
+                print(response.json())
+
 
 
 def main():
