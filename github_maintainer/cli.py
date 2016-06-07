@@ -9,7 +9,7 @@ import stups_cli.config
 import time
 import yaml
 
-from clickclick import print_table, Action, AliasedGroup
+from clickclick import print_table, Action, AliasedGroup, OutputFormat
 
 CONFIG_DIR = click.get_app_dir('github-maintainer-cli')
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
@@ -18,6 +18,9 @@ adapter = requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=10)
 session = requests.Session()
 session.mount('http://', adapter)
 session.mount('https://', adapter)
+
+output_option = click.option('-o', '--output', type=click.Choice(['text', 'json', 'tsv']), default='text',
+                             help='Use alternative output format')
 
 
 def parse_time(s: str) -> float:
@@ -176,30 +179,38 @@ def configure(config):
 
 
 @cli.command()
+@click.option('--show-issues', is_flag=True, help='Also show current number of open issues/PRs')
+@output_option
 @click.pass_obj
-def repositories(config):
+def repositories(config, show_issues, output):
     '''List repositories'''
     token = config.get('github_access_token')
 
     repositories = get_repositories()
 
-    for issue in get_my_issues(token):
-        repo = repositories.get(issue['repository']['url'])
-        if repo:
-            repo['open_issues'] = repo.get('open_issues', 0) + 1
-            if issue.get('pull_request'):
-                repo['open_pull_requests'] = repo.get('open_pull_requests', 0) + 1
+    if show_issues:
+        for issue in get_my_issues(token):
+            repo = repositories.get(issue['repository']['url'])
+            if repo:
+                repo['open_issues'] = repo.get('open_issues', 0) + 1
+                if issue.get('pull_request'):
+                    repo['open_pull_requests'] = repo.get('open_pull_requests', 0) + 1
 
     rows = []
     for url, repo in sorted(repositories.items()):
         rows.append(repo)
 
-    print_table(['full_name', 'stargazers_count', 'forks_count', 'open_issues', 'open_pull_requests'], rows)
+    with OutputFormat(output):
+        columns = ['full_name', 'stargazers_count', 'forks_count']
+        if show_issues:
+            columns += ['open_issues', 'open_pull_requests']
+        print_table(columns, rows)
 
 
 @cli.command()
+@output_option
 @click.pass_obj
-def issues(config):
+def issues(config, output):
     '''List open issues'''
     token = config.get('github_access_token')
 
@@ -217,12 +228,14 @@ def issues(config):
                 rows.append(issue)
 
     rows.sort(key=lambda x: (x['repository'], x['number']))
-    print_table(['repository', 'number', 'title', 'labels', 'created_time', 'created_by'], rows)
+    with OutputFormat(output):
+        print_table(['repository', 'number', 'title', 'labels', 'created_time', 'created_by'], rows)
 
 
 @cli.command('pull-requests')
+@output_option
 @click.pass_obj
-def pull_requests(config):
+def pull_requests(config, output):
     '''List pull requests'''
     token = config.get('github_access_token')
 
@@ -244,8 +257,9 @@ def pull_requests(config):
                 rows.append(issue)
 
     rows.sort(key=lambda x: (x['repository'], x['number']))
-    print_table(['repository', 'number', 'title', 'labels', 'mergeable',
-                 'mergeable_state', 'created_time', 'created_by'], rows)
+    with OutputFormat(output):
+        print_table(['repository', 'number', 'title', 'labels', 'mergeable',
+                     'mergeable_state', 'created_time', 'created_by'], rows)
 
 
 @cli.command()
