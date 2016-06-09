@@ -270,8 +270,9 @@ def pull_requests(config, output):
 @click.option('--base-branch', default='master', help='Base branch (default is "master")')
 @click.option('--all-repositories', is_flag=True, help='Match all repositories, not only the ones I maintain')
 @click.option('--title', help='Title of pull request')
+@click.option('--body', help='Body of pull request')
 @click.pass_obj
-def patch(config, repo, path, pattern, replacement, base_branch, all_repositories, title):
+def patch(config, repo, path, pattern, replacement, base_branch, all_repositories, title, body):
     '''Replace a pattern in a single file in multiple repositories
 
     Example:
@@ -335,7 +336,7 @@ def patch(config, repo, path, pattern, replacement, base_branch, all_repositorie
                                        data=json.dumps({'sha': new_commit_sha}))
 
                 with Action('Creating pull request..') as act:
-                    body = 'Automatically created by github-maintainer-cli to patch {}'.format(path)
+                    body = body or 'Automatically created by github-maintainer-cli to patch {}'.format(path)
                     response = request(session.post, val['url'] + '/pulls', token,
                                        data=json.dumps({'title': title,
                                                         'head': branch_name,
